@@ -19,8 +19,12 @@ for x in xrange(len(sys.argv)-1):
 # Specify IO mode
 my_proc.set_io_mode(fmwk.storage_manager.kREAD)
 
+# Number of events to run
+#events = 100
+events = -1 # all
+
 # Specify output root file name
-my_proc.set_ana_output_file( sys.argv[1].rsplit("/",2)[1] + "_FDimAna.root" )
+my_proc.set_ana_output_file( sys.argv[1].rsplit("/",2)[1] + "_FDimAna_" + (str(events) if (events > 0) else "all") + ".root" )
 
 # Attach an analysis unit ... here we use a base class which does nothing.
 # Replace with your analysis unit if you wish.
@@ -31,8 +35,10 @@ print  "Finished configuring ana_processor. Start event loop!"
 print
 
 # Let's run it.
-my_proc.run();
-#my_proc.run(0,100);
+if events > 0:
+    my_proc.run(0,events);
+else:
+    my_proc.run();
 
 # done!
 print

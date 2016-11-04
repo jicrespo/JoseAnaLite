@@ -60,31 +60,29 @@ namespace larlite {
     /// Bin widths in m
     std::vector<double> binWidths;
 
+    /// Distance widths in m
+    std::vector<double> distWidths;
+
     /// Vector of histograms at different scales
     std::vector<TH2D*> hitHistos;
 
     /// Vector of counting boxes at different scales
     std::vector<double> boxNumbers;
 
-    ///// F dimension from scaling fit
-    //    double FDim;
-    /// Vector with box counting F dimension from scaling fit, scale cutoff and fit chi square computed using several methods (see enum in FDimAna.cxx)
-    std::vector<double> BDim;
-
-    /// Vector with correlation F dimension from scaling fit, scale cutoff and fit chi square computed using several methods (see enum in FDimAna.cxx)
+    /// Vector with correlation F dimension from scaling fit and its error, scale transition and fit chi square
     std::vector<double> CDim;
 
-    /// Vector with information F dimension from scaling fit, scale cutoff and fit chi square computed using several methods (see enum in FDimAna.cxx)
-    std::vector<double> IDim;
+    /// Vector with exponents for the generalized F dimension
+    std::vector<double> QExp;
 
-    /// Vector with box counting F dimensions from local slopes
-    std::vector<double> BDimSlope;
+    /// Matrix with generalized F dimension from scaling fit and its error, scale cutoff and fit chi square
+    std::vector< std::vector<double> > QDim;
 
     /// Vector with correlation F dimensions from local slopes
     std::vector<double> CDimSlope;
 
-    /// Vector with information F dimensions from local slopes
-    std::vector<double> IDimSlope;
+    /// Matrix with generalized F dimensions from local slopes
+    std::vector< std::vector<double> > QDimSlope;
 
     /// MC truth shower energy
     double showerTruthE;
@@ -107,68 +105,32 @@ namespace larlite {
     /// Hit minimum charge
     double _chargeMin;
 
-    /// Profile of counting boxes
-    TProfile* boxProf;
+    /// Profile of generalized F dimension
+    TProfile* QDimProf;
 
-    /// Profile of counting boxes normalized with respect to the number of the smallest boxes
-    TProfile* boxProfNorm;
-
-    /// Profile of F dimension
-    TProfile* dimProf;
-
-    /// 2D histogram of counting boxes
-    TH2D* boxH2;
-
-    /// 2D histogram of counting boxes normalized with respect to the number of the smallest boxes
-    TH2D* boxH2Norm;
-
-    /// 2D histogram of F dimension
-    TH2D* dimH2;
-
-    /// Profile of correlation integral
-    TProfile* corProf;
-
-    /// Profile of correlation integral removing normalization
-    TProfile* corProfNorm;
-
-    /// 2D histogram of correlation integral
-    TH2D* corH2;
-
-    /// 2D histogram of correlation integral removing normalization
-    TH2D* corH2Norm;
-
-    /// Profile of negative entropy
-    TProfile* infProf;
-
-    /// 2D histogram of negative entropy
-    TH2D* infH2;
+    /// Profile of correlation F dimension
+    TProfile* CDimProf;
 
     /// Reset output variables to be filled in the tree
     void resetOutTreeVars();
 
-    /// Make bin contents of histogram either 0 (if already 0) or 1 (if != 0)
-    void binarize(TH2* h2);
-
-    /// Return number of bins with content bigger than zero
-    double countBoxes(TH2* h2);
-
-    /// Return minus Shannon entropy in base 10
-    double mentropy(TH2* h2);
-
-    /// Power function to fit scaling
-    static double scalingFitPow(double* x, double* par);
+    /// Return sum of bin probabilities raised to the power of q
+    double probabilitySumQ(TH2* h2, double q);
 
     /// Linear function to fit scaling
     static double scalingFitLin(double* x, double* par);
 
+    /// Logistic function to fit scaling
+    static double scalingFitLogi(double* x, double* par);
+
     /// Compute mean F dimension and a cutoff from local slopes and store the results in a vector passed by reference
     void meanFDim(const std::vector<double>& slopes, const std::vector<double>& widths, std::vector<double>& FDim );
 
-    /// Compute F dimension and a cutoff from power scaling and store the results in a vector passed by reference
-    void powFDim(TGraph*, const std::vector<double>& widths, std::vector<double>& FDim );
-
     /// Compute F dimension and a cutoff from linear scaling and store the results in a vector passed by reference
     void linFDim(const double& saturation, TGraph*, const std::vector<double>& widths, std::vector<double>& FDim );
+
+    /// Compute F dimension and a scale limit and store the results in a vector passed by reference
+    void logiFDim(TGraph*, const std::vector<double>& widths, std::vector<double>& FDim );
 
     /// Tree to store output variables related to FDimAna
     TTree* outTree;

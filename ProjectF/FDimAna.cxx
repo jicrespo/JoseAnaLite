@@ -10,18 +10,17 @@
 
 #include <TCanvas.h>
 #include <TF1.h>
+#include <TGraphErrors.h>
 
 namespace larlite {
 
-  // TODO: Move to FDimAna.h
-  enum FDimType { kLinFDim = 0, /// F dimension from linear fit
-		  kLinCutoff, /// Cutoff scale from linear fit
-		  kLinChiSq,  /// Chi square from linear fit
+  // TODO: Move to FDimAna.h?
+  enum FDimType { kFDim = 0, /// F dimension from linear fit (logistic for correlation)
+		  kErrFDim, /// Error on F dimension from linear fit (logistic for correlation)
+		  kScale, /// Cutoff scale from linear fit (transtion point for correlation)
+		  kChiSq,  /// Chi square from linear fit (logistic for correlation)
 		  kMeanFDim, /// F dimension from average of slopes
 		  kMeanCutoff, /// Cutoff scale from average of slopes
-		  kPowFDim, /// F dimension from power fit
-		  kPowCutoff, /// Cutoff scale from power fit
-		  kPowChiSq, /// Chi square from power fit
 		  kMaxFDim
   };
 
@@ -37,17 +36,28 @@ namespace larlite {
     gROOT->SetBatch();
 
     // Bin widths in m (must be in increasing order)
-    binWidths = {0.004375, 0.00875, 0.0175, 0.035, 0.07, 0.14, 0.28, 0.56};
-
+    // binWidths = {0.004375, 0.00875, 0.0175, 0.035, 0.07, 0.14, 0.28, 0.56};
+    binWidths = {0.00875, 0.0175, 0.035, 0.07, 0.14};
     hitHistos.resize(binWidths.size());
     boxNumbers.resize(binWidths.size());
 
-    BDim.resize(kMaxFDim);
-    BDimSlope.resize(binWidths.size() - 1);
+    // Correlation dimension
+    for(double d = binWidths.front(); d <= binWidths.back(); d+= 0.003){
+	  distWidths.push_back(d);
+    }
     CDim.resize(kMaxFDim);
-    CDimSlope.resize(binWidths.size() - 1);
-    IDim.resize(kMaxFDim);
-    IDimSlope.resize(binWidths.size() - 1);
+    CDimSlope.resize(distWidths.size() - 1);
+
+    // 10 dimensions
+    for(double q = 0; q <= 10; q++){
+      QExp.push_back(q);
+    }
+    QDim.resize(QExp.size());
+    QDimSlope.resize(QDim.size());
+    for(size_t qi = 0; qi < QDim.size(); qi++){
+      QDim.at(qi).resize(kMaxFDim);
+      QDimSlope.at(qi).resize(binWidths.size() - 1);
+    }
 
     // TODO: set from python script
     _chargeMin = 3;
@@ -69,69 +79,20 @@ namespace larlite {
 				  int((timeMax - timeMin)/binWidths.at(b)), timeMin, timeMax );
     }
 
-    boxProf = new TProfile( Form( "boxProf_plane%zu", plane ),
-			    Form( "Boxes on plane %zu; log_{10}(#epsilon (m)); log_{10}(1/N(#epsilon))", plane ),
-			    10, std::log10(binWidths.front()/2.), std::log10(2.*binWidths.back()), "s" );
+    QDimProf = new TProfile( Form( "QDimProf_plane%zu", plane ),
+			     Form( "Generalized dimension spectrum on plane %zu; q; D_{q}", plane ),
+			     QExp.back() - QExp.front() + 1, QExp.front() - 0.5, QExp.back() + 0.5, "s" );
 
-    boxProfNorm = new TProfile( Form( "boxProfNorm_plane%zu", plane ),
-				Form( "Boxes on plane %zu; #epsilon (m); N(%f m)/N(#epsilon)", plane, binWidths.front() ),
-				200, binWidths.front(), binWidths.back() + 0.1*binWidths.back(), "s" );
-
-    dimProf = new TProfile( Form( "dimProf_plane%zu", plane ),
-			    Form( "Boxes on plane %zu; #epsilon (m); FD", plane ),
-			    200, binWidths.front(), binWidths.back() + 0.1*binWidths.back(), "s" );
-
-    boxH2 = new TH2D( Form( "boxH2_plane%zu", plane ),
-		      boxProf->GetTitle(),
-		      boxProf->GetNbinsX(), boxProf->GetXaxis()->GetXmin(), boxProf->GetXaxis()->GetXmax(),
-		      std::rint(std::fabs(20*std::log10(1./(hitHistos.at(0)->GetNcells())))), std::log10(1./(hitHistos.at(0)->GetNcells())), 0 );
-
-    boxH2Norm = new TH2D( Form( "boxH2Norm_plane%zu", plane ),
-			  boxProfNorm->GetTitle(),
-			  boxProfNorm->GetNbinsX(), boxProfNorm->GetXaxis()->GetXmin(), boxProfNorm->GetXaxis()->GetXmax(),
-			  std::rint(std::pow(binWidths.back(), 2)/std::pow(binWidths.front(), 2) - 1),
-			  1., std::pow(binWidths.back(), 2)/std::pow(binWidths.front(), 2) );
-
-    dimH2 = new TH2D( Form( "dimH2_plane%zu", plane ),
-		      dimProf->GetTitle(),
-		      dimProf->GetNbinsX(), dimProf->GetXaxis()->GetXmin(), dimProf->GetXaxis()->GetXmax(),
-		      300,0., 3. );
-
-    corProf = new TProfile( Form( "corProf_plane%zu", plane ),
-			    Form( "Correlation integral on plane %zu; log_{10}(#epsilon (m)); log_{10}(C(#epsilon))", plane ),
-			    10, std::log10(binWidths.front()/2.), std::log10(2.*binWidths.back()), "s" );
-
-    corProfNorm = new TProfile( Form( "corProfNorm_plane%zu", plane ),
-				Form( "Correlation integral on plane %zu; #epsilon (m); N^{2}C(#epsilon)", plane ),
-				200, binWidths.front(), binWidths.back() + 0.1*binWidths.back(), "s" );
-
-    corH2 = new TH2D( Form( "corH2_plane%zu", plane ),
-		      corProf->GetTitle(),
-		      corProf->GetNbinsX(), corProf->GetXaxis()->GetXmin(), corProf->GetXaxis()->GetXmax(),
-		      600, -6, 0 ); // hardcoded
-
-    corH2Norm = new TH2D( Form( "corH2Norm_plane%zu", plane ),
-		      corProfNorm->GetTitle(),
-		      corProfNorm->GetNbinsX(), corProfNorm->GetXaxis()->GetXmin(), corProfNorm->GetXaxis()->GetXmax(),
-		      600, -6, 0 ); // hardcoded
-
-    infProf = new TProfile( Form( "infProf_plane%zu", plane ),
-			    Form( "Information on plane %zu; log_{10}(#epsilon (m)); #sum_{i}^{N}P_{i}(#epsilon)log_{10}[P_{i}(#epsilon)]", plane ),
-			    10, std::log10(binWidths.front()/2.), std::log10(2.*binWidths.back()), "s" );
-
-    infH2 = new TH2D( Form( "infH2_plane%zu", plane ),
-		      infProf->GetTitle(),
-		      infProf->GetNbinsX(), infProf->GetXaxis()->GetXmin(), infProf->GetXaxis()->GetXmax(),
-		      std::rint(std::fabs(20*std::log10(1./(hitHistos.at(0)->GetNcells())))), std::log10(1./(hitHistos.at(0)->GetNcells())), 0 );
+    CDimProf = new TProfile( Form( "CDimProf_plane%zu", plane ),
+			     Form( "Correlation dimension spectrum on plane %zu; q; D_{q}", plane ),
+			     QExp.back() - QExp.front() + 1, QExp.front() - 0.5, QExp.back() + 0.5, "s" );
 
     outTree = new TTree("outTree", "FDimAna output tree");
     outTree->Branch("boxN", &boxNumbers );
-    outTree->Branch("BDim", &BDim );
-    outTree->Branch("BDimSlope", &BDimSlope );
     outTree->Branch("CDim", &CDim );
     outTree->Branch("CDimSlope", &CDimSlope );
-    outTree->Branch("IDim", &IDim );
-    outTree->Branch("IDimSlope", &IDimSlope );
+    outTree->Branch("QDim", &QDim );
+    outTree->Branch("QDimSlope", &QDimSlope );
     outTree->Branch("hitSumInt", &hitSumInt );
     outTree->Branch("showerEDep", &showerDepE );
     outTree->Branch("showerETh", &showerTruthE );
@@ -164,6 +125,7 @@ namespace larlite {
     //
 
     int index = storage->get_index();
+    int each = 50; // Save one event every "each" events
 
     resetOutTreeVars();
 
@@ -218,15 +180,13 @@ namespace larlite {
     for(auto const& hit : *ev_hit) {
       // TODO: use also the other planes?
       if( hit.WireID().Plane != 2 ) continue;
-
       if( hit.Integral() < _chargeMin ) continue;
-
       if( hit.WireID().Wire < minWire ) minWire = hit.WireID().Wire;
       if( hit.PeakTime() < minTime ) minTime = hit.PeakTime();
     }
 
     double maxHitWire = 0., maxHitTime = 0.;
-    //    for(auto const& hit_h : *ev_hit) {
+
     // TODO: Set the maximum and number of bins using detector dimensions from initialize
     TH1D* corH = new TH1D( Form("corH_ev%i", index), "Correlation histogram; Distance (m); Hit pairs", 16000, 0, 16);
 
@@ -245,7 +205,7 @@ namespace larlite {
       // Hit coordinates
       double hitWire = (hit_h.WireID().Wire - minWire) * wire2m;
       double hitTime = (hit_h.PeakTime() - minTime) * time2m;
-      //      double hitTime = hitWire; // Test with straight lines ---
+      //double hitTime = hitWire; // Test with straight lines ---
       //      std::cout << "Wire: " << hitWire << " Time: " << hitTime << std::endl;
 
       // Find maximum hit and maximum wire coordinates to set the range when plotting the histogram
@@ -269,7 +229,7 @@ namespace larlite {
 	if( hit_i.Integral() < _chargeMin ) continue;
 	double hitWire_i = (hit_i.WireID().Wire - minWire) * wire2m;
 	double hitTime_i = (hit_i.PeakTime() - minTime) * time2m;
-	//	double hitTime_i = hitWire_i; // Test with straight lines ---
+	//double hitTime_i = hitWire_i; // Test with straight lines ---
 	//	for(double hitTime = hitWire; hitTime >= 0; hitTime -= 0.003){ // Test with triangles <|
 	//	for(double hitTime_i = hitWire_i; hitTime_i >= 0.; hitTime_i -= 0.003){// Test with triangles <|
 	double corDistance = std::sqrt(std::pow(hitWire - hitWire_i, 2) + std::pow(hitTime - hitTime_i, 2));
@@ -282,24 +242,18 @@ namespace larlite {
     //__________________________________________________________________________
 
     // Correlation method graphs
-    TGraph* corG = new TGraph(binWidths.size()); // Same number of points as others to ease comparison, but not required
-    TGraph* corGNorm = new TGraph(binWidths.size()); // Same number of points as others to ease comparison, but not required
-    // Nevertheless, it is better to have the x points equally spaced (after logarithm), so in the end, the choice will be similar to binWidths
+    TGraph* corG = new TGraph(distWidths.size());
     double lastLogCorIntegral = 0;
     double lastLogDistance = 0;
     double corNorm = corH->Integral();
-    for(size_t b = 0; b < binWidths.size(); b++){
-      int bin = corH->FindBin(binWidths.at(b));
+
+    for(size_t b = 0; b < distWidths.size(); b++){
+      int bin = corH->FindBin(distWidths.at(b));
       double corIntegralN2 = corH->Integral(1, bin);
       double logCorIntegral = std::log10(corIntegralN2/corNorm);
       double distance = corH->GetBinCenter(bin + 1);
       double logDistance = std::log10(distance);
-      corProf->Fill(logDistance, logCorIntegral);
-      corH2->Fill(logDistance, logCorIntegral);
       corG->SetPoint(b, logDistance, logCorIntegral);
-      corProfNorm->Fill(distance, corIntegralN2);
-      corH2Norm->Fill(distance, corIntegralN2);
-      corGNorm->SetPoint(b, distance, corIntegralN2);
 
       if(b > 0 ){
 	// Compute local slopes
@@ -310,28 +264,16 @@ namespace larlite {
       lastLogDistance = logDistance;
     }
 
-    // int corFirstBin = corH->FindFirstBinAbove(0.);
-    // int corLastBin = corH->FindLastBinAbove(0.);
-    // int nBins = 0;
-    // for(int bin = 2*corFirstBin; bin <= corLastBin; bin *= 2){ nBins++;}
-    // TGraph* corG = new TGraph(nBins);
-    // int point = 0;
-    // for(int bin = 2*corFirstBin; bin <= corLastBin; bin *= 2){
-    //   double corIntegral = corH->Integral(corFirstBin, bin); // Not divided by N^2 because it does not affect the slope when taking logs
-    //   corG->SetPoint(point, std::log10(corH->GetBinCenter(bin + 1)), std::log10(corIntegral));
-    //   point++;
-    // }
-
-    TGraph* boxGNorm = new TGraph(hitHistos.size() - 1);
-    TGraph* boxG = new TGraph(hitHistos.size());
-
-    TGraph* infG = new TGraph(hitHistos.size());
-
-    double lastNegentropy = 0;
+    // Generalized method graphs
+    std::vector<TGraph*> genG(QDim.size());
+    for(size_t qi = 0; qi < genG.size(); qi++){
+      genG.at(qi) = new TGraph(hitHistos.size());
+    }
+    std::vector<double> lastGeneralizedNum(QDim.size());
 
     for(size_t b = 0; b < hitHistos.size(); b++){
       // Write canvas for 1 of 100 events
-      if( index%100 == 0 ){
+      if( index%each == 0 ){
 	//if( 1 ){
 	TCanvas* canvas = new TCanvas( Form("event%i_%s", index, hitHistos.at(b)->GetName()), hitHistos.at(b)->GetTitle() );
 	// binarize(hitHistos.at(b));
@@ -347,98 +289,93 @@ namespace larlite {
 	delete canvas;
       }
 
-      // Box method graphs
-      double boxes = countBoxes(hitHistos.at(b));
-      boxNumbers.at(b) = boxes;
-      double logInvBoxes = -std::log10(boxes); // == std::log10(1./boxes);
       double logBinWidth = std::log10(binWidths.at(b));
-      if( boxes != 0 ){
-	boxProf->Fill(logBinWidth, logInvBoxes);
-	boxH2->Fill(logBinWidth, logInvBoxes);
-	boxG->SetPoint(b, logBinWidth, logInvBoxes);
 
-	dimProf->Fill( binWidths.at(b), logInvBoxes/logBinWidth );
-	dimH2->Fill( binWidths.at(b), logInvBoxes/logBinWidth );
+      // Generalized method graphs
+      for(size_t qi = 0; qi < QExp.size(); qi++){
+	double probSumQ = probabilitySumQ(hitHistos.at(b), QExp.at(qi));
+	if(probSumQ != 0){
+	  // O-dimension is the box counting
+	  if( QExp.at(qi) == 0. ) boxNumbers.at(b) = probSumQ;
+	  double generalizedNum = 0;
+	  if( QExp.at(qi) != 1. ) generalizedNum = std::log10(probSumQ)/(QExp.at(qi) - 1);
+	  // Information dimension using L'Hôpital rule
+	  else generalizedNum = probSumQ;
+	  genG.at(qi)->SetPoint(b, logBinWidth, generalizedNum);
 
-	if(b > 0 ){ // Do not waste time to compute a 1
-	  boxProfNorm->Fill( binWidths.at(b), boxNumbers.at(0)/boxes );
-	  boxH2Norm->Fill( binWidths.at(b), boxNumbers.at(0)/boxes );
-
-	  // Per event
-	  boxGNorm->SetPoint(b - 1, binWidths.at(b), boxNumbers.at(0)/boxes);
-
-	  // Compute local slopes
-	  // For slopes, there is no need to normalize
-	  // And anyway, the normalization disappears due to logarithm properties
-	  double localSlope = (std::log10(boxNumbers.at(b - 1)) - std::log10(boxes))
-	    /(logBinWidth - std::log10(binWidths.at(b - 1)));
-	  BDimSlope.at(b - 1) = localSlope;
+	  if(b > 0 ){
+	    // Compute local slopes
+	    double localSlope = (generalizedNum - lastGeneralizedNum.at(qi))/(logBinWidth - std::log10(binWidths.at(b - 1)));
+	    QDimSlope.at(qi).at(b - 1) = localSlope;
+	  }
+	  lastGeneralizedNum.at(qi) = generalizedNum;
 	}
       }
 
-      // Information method graphs
-      double negentropy = mentropy(hitHistos.at(b));
-      infProf->Fill(logBinWidth, negentropy);
-      infH2->Fill(logBinWidth, negentropy);
-      infG->SetPoint(b, logBinWidth, negentropy);
-
-      if(b > 0 ){
-	// Compute local slopes
-	double localSlope = (negentropy - lastNegentropy)/(logBinWidth - std::log10(binWidths.at(b - 1)));
-	IDimSlope.at(b - 1) = localSlope;
-      }
-      lastNegentropy = negentropy;
     }
 
-    if( index%100 == 0 ){
+    if( index%each == 0 ){
       //if( 1 ){
-      boxGNorm->SetNameTitle( Form( "boxGNorm_ev%i", index ), boxProfNorm->GetTitle() );
-      boxG->SetNameTitle( Form( "boxG_ev%i", index ), boxProf->GetTitle() );
-      corG->SetNameTitle( Form( "corG_ev%i", index ), corProf->GetTitle() );
-      corGNorm->SetNameTitle( Form( "corGNorm_ev%i", index ), corProfNorm->GetTitle() );
-      infG->SetNameTitle( Form( "infG_ev%i", index ), infProf->GetTitle() );
+      corG->SetNameTitle( Form( "corG_ev%i", index ), "Correlation integral; log_{10}(#epsilon (m)); log_{10}(C(#epsilon))" );
+      for(size_t qj = 0; qj < QExp.size(); qj++){
+	genG.at(qj)->SetNameTitle( Form( "genG%.0lf_ev%i", QExp.at(qj), index ),
+				   Form( "D_{%.0lf}; log_{10}(#epsilon (m)); #frac{1}{%.0lf}log_{10}#sum_{i}^{N}P^{%.0lf}_{i}(#epsilon)",
+					 QExp.at(qj), QExp.at(qj) - 1, QExp.at(qj) ) );
+      }
     }
 
     // F dimensions
     //__________________________________________________________________________
 
     // Mean method
-    // Box
-    meanFDim(BDimSlope, binWidths, BDim);
-    // Correlation
-    meanFDim(CDimSlope, binWidths, CDim);
-    // Information
-    meanFDim(IDimSlope, binWidths, IDim);
 
-    // Power scaling fit
-    // Box
-    powFDim(boxGNorm, binWidths, BDim);
     // Correlation
-    powFDim(corGNorm, binWidths, CDim);
+    meanFDim(CDimSlope, distWidths, CDim);
+    // Generalized
+    for(size_t qi = 0; qi < QDim.size(); qi++){
+      meanFDim(QDimSlope.at(qi), binWidths, QDim.at(qi));
+    }
 
     // Linear scaling fit
-    // Box
-    linFDim(0., boxG, binWidths, BDim);
-    // Correlation
-    linFDim(0., corG, binWidths, CDim);
-    // Information
-    linFDim(0., infG, binWidths, IDim);
 
-    if( index%100 == 0 ){
+    // Generalized
+
+    TGraphErrors* QDimGE = new TGraphErrors(QExp.size());
+
+    for(size_t qi = 0; qi < QDim.size(); qi++){
+      linFDim(0., genG.at(qi), binWidths, QDim.at(qi));
+      if( QDim.at(qi).at(kFDim) > 0. && QDim.at(qi).at(kFDim) < 3. ){
+	QDimProf->Fill(QExp.at(qi), QDim.at(qi).at(kFDim));
+	QDimGE->SetPoint((int)qi, QExp.at(qi), QDim.at(qi).at(kFDim));
+	QDimGE->SetPointError((int)qi, 0., QDim.at(qi).at(kErrFDim));
+      }
+    }
+
+    // Logistic scaling fit
+
+    // Correlation
+    logiFDim(corG, distWidths, CDim);
+    // For reference
+    if( CDim.at(kFDim) > 0 && CDim.at(kFDim) < 3 ){
+      CDimProf->Fill(2, CDim.at(kFDim));
+    }
+
+    if( index%each == 0 ){
       //if( 1 ){
-      boxGNorm->Write();
-      boxG->Write();
       corG->Write();
-      corGNorm->Write();
-      infG->Write();
+      for(size_t qi = 0; qi < genG.size(); qi++){
+	genG.at(qi)->Write();
+      }
+      QDimGE->SetNameTitle( Form("QDimGE_ev%i", index), "Generalized dimension spectrum; q; D_{q}" );
+      QDimGE->Write();
       corH->Write();
     }
-    delete boxGNorm;
-    delete boxG;
     delete corG;
-    delete corGNorm;
-    delete infG;
     delete corH;
+    delete QDimGE;
+    for(size_t qi = 0; qi < genG.size(); qi++){
+      delete genG.at(qi);
+    }
 
     outTree->Fill();
 
@@ -466,17 +403,9 @@ namespace larlite {
 
     if( _fout ){
       _fout->cd();
-      boxProf->Write();
-      boxProfNorm->Write();
-      dimProf->Write();
-      corProf->Write();
-      infProf->Write();
 
-      boxH2->Write();
-      boxH2Norm->Write();
-      dimH2->Write();
-      corH2->Write();
-      infH2->Write();
+      QDimProf->Write();
+      CDimProf->Write();
 
       outTree->Write();
     }
@@ -485,59 +414,38 @@ namespace larlite {
 
   void FDimAna::resetOutTreeVars()
   {
-    std::fill(BDim.begin(), BDim.end(), 0.);
-    std::fill(BDimSlope.begin(), BDimSlope.end(), 0.);
     std::fill(CDim.begin(), CDim.end(), 0.);
     std::fill(CDimSlope.begin(), CDimSlope.end(), 0.);
-    std::fill(IDim.begin(), IDim.end(), 0.);
-    std::fill(IDimSlope.begin(), IDimSlope.end(), 0.);
+    for(size_t q = 0; q < QDim.size(); q++){
+      std::fill(QDim.at(q).begin(), QDim.at(q).end(), 0.);
+      std::fill(QDimSlope.at(q).begin(), QDimSlope.at(q).end(), 0.);
+    }
     hitSumInt = showerDepE = showerTruthE = trackDepE = trackTruthE = 0.;
     processTruth.clear();
   }
 
-  void FDimAna::binarize(TH2* h2)
+  double FDimAna::probabilitySumQ(TH2* h2, double exp)
   {
-    // Keep original entries
-    double entries = h2->GetEntries();
-    // Includes underflows and overflows
-    for(int i = 0; i < h2->GetNcells(); i++){
-      if( h2->GetBinContent(i) > 0 ) h2->SetBinContent(i,1);
-    }
-    h2->SetEntries(entries);
-  }
-
-  double FDimAna::countBoxes(TH2* h2)
-  {
-    double count = 0;
-    // Exclude underflows and overflows
-    for(int i = 1; i <= h2->GetNbinsX(); i++){
-      for(int j = 1; j <= h2->GetNbinsY(); j++){
-	if( h2->GetBinContent( h2->GetBin(i,j) ) > 0 ) count++;
-      }
-    }
-    return count;
-  }
-
-  double FDimAna::mentropy(TH2* h2)
-  {
-    double entropy = 0;
+    double probSumQ = 0;
     // Exclude underflows and overflows
     double totHits = h2->GetSumOfWeights();
     for(int i = 1; i <= h2->GetNbinsX(); i++){
       for(int j = 1; j <= h2->GetNbinsY(); j++){
-	double probability = (h2->GetBinContent( h2->GetBin(i,j) ))/totHits;
-	if( probability > 0 ) entropy += probability*std::log10(probability);
+	if( h2->GetBinContent( h2->GetBin(i,j) ) > 0 ){
+	  // 0-dim
+	  if( exp == 0 ) probSumQ++; // Save time for box
+	  // 1-dim
+	  else if( exp == 1 ){
+	    double probability = (h2->GetBinContent( h2->GetBin(i,j) ))/totHits;
+	    // Information dimension using L'Hôpital rule
+	    probSumQ+= probability*std::log10(probability);
+	  }
+	  // q-dim (q != 0, 1)
+	  else probSumQ += std::pow( (h2->GetBinContent( h2->GetBin(i,j) ))/totHits, exp );
+	}
       }
     }
-    return entropy;
-  }
-
-  double FDimAna::scalingFitPow(double *x, double *par)
-  {
-    double f = par[0];
-    if( x[0] < par[2] ) f *= std::pow( x[0], par[1] );
-    else f *= std::pow( par[2], par[1] );
-    return f;
+    return probSumQ;
   }
 
   double FDimAna::scalingFitLin(double *x, double *par)
@@ -545,6 +453,13 @@ namespace larlite {
     double f;
     if( x[0] < par[0] ) f = par[1] * ( x[0] - par[0] );
     else f = par[2]; // par[2] is fixed
+    return f;
+  }
+
+  double FDimAna::scalingFitLogi(double *x, double *par)
+  {
+    // Written so that par[1] is the FDim
+    double f = par[2]/( 1 + exp(-4./par[2]*par[1]*( x[0] - par[0] )) ) - par[2];
     return f;
   }
 
@@ -572,26 +487,10 @@ namespace larlite {
     if( FDim[kMeanCutoff] == 0 ) FDim[kMeanCutoff] = widths.back();
   }
 
-  void FDimAna::powFDim(TGraph* graph, const std::vector<double>& widths, std::vector<double>& FDim)
-  {
-    TF1* f1 = new TF1( Form("fit_%s", graph->GetName()), FDimAna::scalingFitPow, widths.front(), widths.back(), 3);
-    f1->SetParameter(1, ((FDim[kMeanFDim] != 0 )? FDim[kMeanFDim] : 1.) ); // Initialize the F dimension using the one computed in the mean method
-    f1->SetParLimits(1, 0., 3.);
-    f1->SetParameter(0, 2. * TMath::MaxElement(graph->GetN(), graph->GetY()));
-    // f1->SetParLimits(0, 0., 1.e4);
-    f1->SetParameter(2, ((FDim[kMeanCutoff] != 0)? FDim[kMeanCutoff] : widths.back()) ); // Initialize the cutoff using the one computed in the mean method
-    f1->SetParLimits(2, widths.front(), 2.*widths.back());
-    graph->Fit(f1, "QR+");
-    FDim[kPowFDim] = f1->GetParameter(1);
-    FDim[kPowCutoff] = f1->GetParameter(2);
-    FDim[kPowChiSq] = f1->GetChisquare();
-    delete f1;
-  }
-
   void FDimAna::linFDim(const double& saturation, TGraph* graph, const std::vector<double>& widths, std::vector<double>& FDim)
   {
     // 3 parameters but 1 is fixed
-    TF1* f2 = new TF1( Form("fit_%s", graph->GetName()), FDimAna::scalingFitLin, std::log10(widths.front()), std::log10(widths.back()), 3);
+    TF1* f2 = new TF1( Form("fit_lin_%s", graph->GetName()), FDimAna::scalingFitLin, std::log10(widths.front()), std::log10(widths.back()), 3);
     // Initialize the F dimension using the one computed in the mean method
     f2->SetParameter(1, ((FDim[kMeanFDim] != 0 )? FDim[kMeanFDim] : 1.) );
     f2->SetParLimits(1, 0., 3.);
@@ -600,11 +499,39 @@ namespace larlite {
     f2->SetParLimits(0, std::log10(widths.front()), std::log10(100.*widths.back()));
     // Fixed parameter
     f2->FixParameter(2, saturation);
+    f2->SetLineColor(kGreen);
     graph->Fit(f2, "QR+");
-    FDim[kLinFDim] = f2->GetParameter(1);
-    FDim[kLinCutoff] = std::pow(10., f2->GetParameter(0));
-    FDim[kLinChiSq] = f2->GetChisquare();
+    FDim[kFDim] = f2->GetParameter(1);
+    FDim[kErrFDim] = f2->GetParError(1);
+    FDim[kScale] = std::pow(10., f2->GetParameter(0));
+    FDim[kChiSq] = f2->GetChisquare();
     delete f2;
+  }
+
+  void FDimAna::logiFDim(TGraph* graph, const std::vector<double>& widths, std::vector<double>& FDim)
+  {
+    // 3 parameters
+    TF1* f = new TF1( Form("fit_logi_%s", graph->GetName()), FDimAna::scalingFitLogi, std::log10(widths.front()), std::log10(widths.back()), 3);
+    double minx, miny;
+    graph->GetPoint(0, minx, miny);
+    // Initialize the F scale limit at the smallest scale measured
+    f->SetParameter(0, minx);
+    f->SetParLimits(0, std::log10(0.01*widths.front()), std::log10(100.*widths.back()));
+    // Initialize the normalization with the F scale limit at the smallest scale measured
+    double p2 = -2.*miny;
+    double maxp2 = 7; // hardcoded: 1e7 hits
+    f->SetParameter(2, p2);
+    f->SetParLimits(2, 0., maxp2);
+    // Initialize the F dimension using the one computed in the mean method
+    f->SetParameter(1, ((FDim[kMeanFDim] != 0 )? FDim[kMeanFDim] : 1.) );
+    f->SetParLimits(1, 0., 3.);
+    f->SetLineColor(kMagenta);
+    graph->Fit(f, "QR+");
+    FDim[kFDim] = f->GetParameter(1);
+    FDim[kErrFDim] = f->GetParError(1);
+    FDim[kScale] = std::pow(10., f->GetParameter(0));
+    FDim[kChiSq] = f->GetChisquare();
+    delete f;
   }
 
 }
